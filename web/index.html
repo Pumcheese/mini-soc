@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Análisis de registros de acceso, alertas y seguimiento de investigaciones."
+    />
+    <title>Mini SOC · Investigación de accesos</title>
+    <link rel="stylesheet" href="/estilos.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="Mini SOC, inicio"
+        >mini soc<span>Análisis de accesos</span></a
+      >
+      <nav aria-label="Navegación principal">
+        <button
+          class="nav-button active"
+          data-vista="alertas"
+          aria-current="page"
+        >
+          Alertas <span id="nav-count" class="nav-count">—</span>
+        </button>
+        <button class="nav-button" data-vista="eventos">Registros</button>
+        <button class="nav-button" data-vista="ayuda">Ayuda</button>
+      </nav>
+      <span class="environment"
+        ><span class="status-dot"></span> Local · v1.0</span
+      >
+    </header>
+
+    <main id="contenido">
+      <div class="page-content">
+        <section class="page-heading">
+          <div>
+            <h1 id="page-title">Investigación de accesos</h1>
+            <p class="subtitle" id="page-subtitle">
+              Revisa los intentos fallidos y documenta cada caso.
+            </p>
+          </div>
+          <a
+            class="button secondary"
+            id="exportar"
+            href="/api/informe"
+            download="informe-mini-soc.md"
+            >Exportar informe .md</a
+          >
+        </section>
+
+        <div
+          id="mensaje"
+          class="message"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
+        <div id="error" class="message error" role="alert" hidden></div>
+
+        <section class="stats" aria-label="Resumen del análisis">
+          <div class="stat-card">
+            <span>Registros</span><strong id="stat-eventos">—</strong>
+          </div>
+          <div class="stat-card">
+            <span>Alertas</span><strong id="stat-alertas">—</strong>
+          </div>
+          <div class="stat-card">
+            <span>Prioridad alta</span
+            ><strong class="text-danger" id="stat-altas">—</strong>
+          </div>
+          <div class="stat-card">
+            <span>Cerradas</span><strong id="stat-cerradas">—</strong>
+          </div>
+          <span id="stat-regla" class="summary-rule"
+            >Regla de accesos fallidos</span
+          >
+        </section>
+
+        <section class="source-bar" aria-label="Fuente de datos y regla">
+          <div class="source-file">
+            <div>
+              <strong id="fuente-nombre">Cargando registros…</strong
+              ><span id="fuente-periodo">Horas expresadas en UTC</span>
+            </div>
+          </div>
+          <form id="regla-form" class="rule-form">
+            <label
+              >Fallos<input
+                id="umbral"
+                type="number"
+                min="1"
+                max="100"
+                value="5"
+                required
+            /></label>
+            <span class="rule-connector">en</span>
+            <label
+              >Minutos<input
+                id="minutos"
+                type="number"
+                min="1"
+                max="1440"
+                value="10"
+                required
+            /></label>
+            <button class="button primary" type="submit" data-mutation>
+              Analizar
+            </button>
+          </form>
+          <div class="source-actions">
+            <button
+              class="button secondary"
+              id="importar"
+              type="button"
+              data-mutation
+            >
+              Importar CSV</button
+            ><input
+              type="file"
+              id="archivo"
+              accept=".csv,text/csv"
+              hidden
+            /><button class="text-button" id="demo" type="button" data-mutation>
+              Cargar demo
+            </button>
+          </div>
+        </section>
+
+        <section id="vista-alertas" class="view">
+          <div class="investigation-layout">
+            <section class="panel queue" aria-labelledby="cola-titulo">
+              <div class="panel-heading">
+                <div>
+                  <h2 id="cola-titulo">Alertas</h2>
+                  <p>Prioridad alta primero · horas UTC</p>
+                </div>
+                <span id="queue-count" class="small-count">—</span>
+              </div>
+              <div class="queue-filters">
+                <label class="search-label"
+                  ><span class="sr-only">Buscar cuenta o IP</span
+                  ><input
+                    id="buscar-alertas"
+                    type="search"
+                    placeholder="Buscar cuenta o IP…"
+                /></label>
+                <div class="filter-row">
+                  <label
+                    ><span class="sr-only">Filtrar por prioridad</span
+                    ><select id="filtro-prioridad">
+                      <option value="">Toda prioridad</option>
+                      <option value="alta">Alta</option>
+                      <option value="media">Media</option>
+                    </select></label
+                  ><label
+                    ><span class="sr-only">Filtrar por estado</span
+                    ><select id="filtro-estado">
+                      <option value="">Todos los estados</option>
+                      <option value="nueva">Nueva</option>
+                      <option value="en_revision">En revisión</option>
+                      <option value="cerrada">Cerrada</option>
+                    </select></label
+                  >
+                </div>
+              </div>
+              <div class="alert-list">
+                <table class="alert-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Cuenta</th>
+                      <th scope="col">Hora UTC</th>
+                      <th scope="col">Prioridad</th>
+                      <th scope="col">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody id="lista-alertas"></tbody>
+                </table>
+              </div>
+              <div class="queue-footer">
+                Selecciona una cuenta para abrir su investigación.
+              </div>
+            </section>
+
+            <section
+              class="panel detail"
+              aria-label="Investigación de la alerta seleccionada"
+            >
+              <div id="detalle-vacio" class="empty-state detail-empty">
+                <h2>Evidencia del caso</h2>
+                <p>Selecciona una cuenta de la tabla.</p>
+              </div>
+              <div id="detalle" hidden>
+                <div class="detail-header">
+                  <div>
+                    <h2 id="caso-titulo">Cuenta</h2>
+                    <p id="caso-fecha"></p>
+                  </div>
+                  <span id="caso-prioridad" class="badge">Prioridad</span>
+                </div>
+                <div class="context-callout">
+                  <div>
+                    <strong>Motivo de la prioridad</strong>
+                    <p id="caso-motivo"></p>
+                  </div>
+                </div>
+                <div class="evidence-grid">
+                  <article>
+                    <span class="evidence-label">Acceso previo</span
+                    ><strong id="ip-anterior">—</strong
+                    ><small id="hora-anterior"></small>
+                  </article>
+                  <article>
+                    <span class="evidence-label">Fallos de la alerta</span
+                    ><strong id="fallos-cuenta">—</strong
+                    ><small id="ips-fallos"></small>
+                  </article>
+                  <article>
+                    <span class="evidence-label">Acceso posterior</span
+                    ><strong id="ip-posterior">—</strong
+                    ><small id="hora-posterior"></small>
+                  </article>
+                </div>
+                <section class="timeline-section">
+                  <div class="section-heading">
+                    <h3>Cronología de la cuenta</h3>
+                    <span>UTC</span>
+                  </div>
+                  <ol id="cronologia" class="timeline"></ol>
+                  <p id="cronologia-limite" class="hint" hidden></p>
+                </section>
+                <form id="caso-form" class="case-form">
+                  <div class="section-heading">
+                    <h3>Investigación</h3>
+                    <span id="guardado-estado" class="save-state"
+                      >Guardado local</span
+                    >
+                  </div>
+                  <div class="decision-fields">
+                    <label
+                      >Estado<select id="caso-estado">
+                        <option value="nueva">Nueva</option>
+                        <option value="en_revision">En revisión</option>
+                        <option value="cerrada">Cerrada</option>
+                      </select></label
+                    ><label
+                      >Veredicto<select id="caso-veredicto">
+                        <option value="pendiente">Pendiente</option>
+                        <option value="legitimo">Actividad legítima</option>
+                        <option value="sospechoso">Actividad sospechosa</option>
+                        <option value="inconcluso">Inconcluso</option>
+                      </select></label
+                    >
+                  </div>
+                  <label
+                    >Notas de investigación<textarea
+                      id="caso-notas"
+                      rows="4"
+                      maxlength="10000"
+                      placeholder="Anota la evidencia revisada, las comprobaciones pendientes y tu conclusión."
+                    ></textarea>
+                  </label>
+                  <div class="form-footer">
+                    <p>
+                      Para cerrar un caso, elige un veredicto y escribe una
+                      conclusión.
+                    </p>
+                    <button class="button primary" type="submit" data-mutation>
+                      Guardar investigación
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="vista-eventos" class="view" hidden>
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Registros de acceso</h2>
+                <p>Fuente de evidencia del análisis seleccionado · horas UTC</p>
+              </div>
+              <label class="search-label"
+                ><span class="sr-only">Buscar en los registros</span
+                ><input
+                  id="buscar-eventos"
+                  type="search"
+                  placeholder="Buscar usuario, IP o resultado…"
+              /></label>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Fecha y hora UTC</th>
+                    <th scope="col">Cuenta</th>
+                    <th scope="col">IP de origen</th>
+                    <th scope="col">Resultado</th>
+                  </tr>
+                </thead>
+                <tbody id="tabla-eventos"></tbody>
+              </table>
+            </div>
+            <p id="eventos-contador" class="table-footer"></p>
+          </div>
+        </section>
+
+        <section id="vista-ayuda" class="view" hidden>
+          <div class="help-document panel">
+            <h2>Importar registros</h2>
+            <p>
+              Selecciona un archivo CSV UTF-8 con los siguientes campos, en este
+              orden. Las fechas deben incluir zona horaria. Se admiten
+              direcciones IPv4 e IPv6 y los resultados EXITO y FALLO.
+            </p>
+            <pre><code>fecha_utc,usuario,ip_origen,resultado
+2026-11-10T09:00:00Z,ana,192.0.2.10,FALLO</code></pre>
+            <p>
+              El límite es de 2.000 eventos y 2 MB por petición. Las filas se
+              ordenan por fecha antes de analizarlas. Si el archivo contiene
+              errores, se conserva el análisis abierto.
+            </p>
+            <a
+              class="button secondary"
+              href="/api/ejemplo"
+              download="demostracion.csv"
+              >Descargar CSV de demostración</a
+            >
+
+            <h2>Regla de detección</h2>
+            <p>
+              Se agrupan los fallos por cuenta, aunque procedan de distintas IP.
+              En cada fallo se cuentan los eventos de los últimos minutos,
+              incluyendo el límite exacto de la ventana. Se genera una alerta al
+              alcanzar el umbral. Los accesos correctos intermedios conservan el
+              recuento de fallos.
+            </p>
+            <p>
+              Con el umbral en cinco, un sexto fallo consecutivo conserva el
+              patrón. Si el recuento baja y vuelve a alcanzar cinco, se puede
+              generar otra alerta.
+            </p>
+
+            <h2>Prioridad y evidencia</h2>
+            <p>
+              La prioridad alta identifica un acceso correcto posterior desde
+              una IP de los fallos distinta a la del último acceso correcto
+              previo. Los demás casos tienen prioridad media. El motivo aparece
+              en cada investigación.
+            </p>
+            <p>
+              El acceso posterior se busca dentro de una ventana del mismo
+              tamaño que la regla, a partir de la hora de alerta. El análisis
+              usa el archivo completo y puede incorporar evidencia posterior al
+              momento de detección.
+            </p>
+
+            <h2>Guardar una investigación</h2>
+            <p>
+              El estado indica si el caso está nuevo, en revisión o cerrado. El
+              veredicto registra la valoración del analista. Para cerrar un caso
+              hay que seleccionar un veredicto y escribir una conclusión.
+            </p>
+            <p>
+              Las notas se guardan al pulsar Guardar investigación. Al repetir
+              los mismos registros con la misma regla se recuperan las
+              decisiones anteriores. El selector Análisis guardados muestra los
+              30 análisis más recientes.
+            </p>
+            <p>
+              Si otra pestaña ha actualizado el caso, se rechaza el guardado de
+              una versión antigua. Copia las notas pendientes y recarga para
+              recuperar la versión actual.
+            </p>
+
+            <h2>Informes y almacenamiento</h2>
+            <p>
+              La exportación Markdown incluye la regla, la evidencia y las
+              decisiones guardadas. Cada cronología muestra hasta 100 eventos
+              relacionados. En Registros se puede consultar el conjunto
+              importado completo.
+            </p>
+            <p>
+              Los datos se conservan en SQLite en el equipo que ejecuta el
+              servidor. La demostración contiene cuentas y accesos ficticios.
+            </p>
+          </div>
+        </section>
+
+        <footer class="page-footer">
+          <span
+            >MINI SOC <span class="footer-separator">/</span> Análisis local de
+            accesos</span
+          ><label
+            >Análisis guardados<select
+              id="historial"
+              aria-label="Abrir un análisis guardado"
+            >
+              <option>Cargando…</option>
+            </select></label
+          >
+        </footer>
+      </div>
+    </main>
+  </body>
+</html>
