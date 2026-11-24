@@ -348,16 +348,19 @@
 
             <h2>Prioridad y evidencia</h2>
             <p>
-              La prioridad alta identifica al menos un acceso correcto posterior desde
-              una IP de los fallos distinta a la del último acceso correcto
-              previo. Se revisan todos los éxitos de la ventana y se destaca el primero que cumple ese criterio; si ninguno lo cumple, se muestra el primer éxito. Los demás casos tienen prioridad media. El motivo aparece
-              en cada investigación.
+              La prioridad es alta si un acceso correcto posterior usa una IP
+              de los fallos distinta de la del último acceso correcto previo.
+              Los demás casos tienen prioridad media. El panel explica el motivo.
             </p>
             <p>
-              El acceso posterior se busca dentro de una ventana del mismo
-              tamaño que la regla, a partir de la hora de alerta. El análisis
-              usa el archivo completo y puede incorporar evidencia posterior al
-              momento de detección. La cronología abarca toda la ventana posterior, incluidos los accesos posteriores al éxito destacado.
+              Se revisan todos los éxitos de la ventana posterior, que tiene la
+              misma duración que la regla. Se destaca el primero que cumple el
+              criterio de prioridad alta; si ninguno lo cumple, se muestra el
+              primer éxito. La cronología incluye el resto de esa ventana.
+            </p>
+            <p>
+              El análisis utiliza el archivo completo, incluidos eventos
+              posteriores a la alerta. Una prioridad alta no confirma una intrusión.
             </p>
 
             <h2>Guardar una investigación</h2>
@@ -386,11 +389,17 @@
               importado completo.
             </p>
             <p>
-              Las filas repetidas se conservan y cuentan; revisa el aviso antes de interpretar una alerta. Los empates temporales se ordenan de forma determinista, sin afirmar qué acceso ocurrió primero. El informe exporta metadatos y notas como texto literal.
+              Las filas repetidas cuentan en la regla. Si aparece un aviso,
+              comprueba que el archivo no esté duplicado. Los eventos simultáneos
+              se presentan en un orden estable, que no demuestra cuál ocurrió primero.
+              Los nombres y las notas se exportan como texto literal.
             </p>
             <p>
               Los datos se conservan en SQLite en el equipo que ejecuta el
-              servidor. La demostración contiene cuentas y accesos ficticios. No hay monitorización en directo, bloqueo automático ni autenticación multiusuario. Las decisiones antiguas se conservan al actualizar el contexto; revísalas si cambia la evidencia.
+              servidor. La demostración utiliza cuentas y accesos ficticios.
+              No hay monitorización en directo, bloqueo automático ni usuarios
+              con permisos separados. Al actualizar el contexto se conservan las
+              decisiones guardadas; revísalas si cambia la evidencia.
             </p>
           </div>
         </section>

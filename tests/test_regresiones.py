@@ -1,4 +1,4 @@
-"""Escenarios de regresión de la revisión 1.1; solo datos ficticios y bases temporales."""
+"""Pruebas de límites, compatibilidad, exportación y concurrencia."""
 
 import hashlib
 import io
