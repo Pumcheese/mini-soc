@@ -29,7 +29,7 @@
         <button class="nav-button" data-vista="ayuda">Ayuda</button>
       </nav>
       <span class="environment"
-        ><span class="status-dot"></span> Local · v1.0</span
+        ><span class="status-dot"></span> Local · v1.1</span
       >
     </header>
 
@@ -59,6 +59,7 @@
           hidden
         ></div>
         <div id="error" class="message error" role="alert" hidden></div>
+        <div id="avisos-datos" class="message warning" role="status" hidden></div>
 
         <section class="stats" aria-label="Resumen del análisis">
           <div class="stat-card">
@@ -218,7 +219,7 @@
                     ><small id="ips-fallos"></small>
                   </article>
                   <article>
-                    <span class="evidence-label">Acceso posterior</span
+                    <span class="evidence-label">Éxito destacado</span
                     ><strong id="ip-posterior">—</strong
                     ><small id="hora-posterior"></small>
                   </article>
@@ -347,16 +348,16 @@
 
             <h2>Prioridad y evidencia</h2>
             <p>
-              La prioridad alta identifica un acceso correcto posterior desde
+              La prioridad alta identifica al menos un acceso correcto posterior desde
               una IP de los fallos distinta a la del último acceso correcto
-              previo. Los demás casos tienen prioridad media. El motivo aparece
+              previo. Se revisan todos los éxitos de la ventana y se destaca el primero que cumple ese criterio; si ninguno lo cumple, se muestra el primer éxito. Los demás casos tienen prioridad media. El motivo aparece
               en cada investigación.
             </p>
             <p>
               El acceso posterior se busca dentro de una ventana del mismo
               tamaño que la regla, a partir de la hora de alerta. El análisis
               usa el archivo completo y puede incorporar evidencia posterior al
-              momento de detección.
+              momento de detección. La cronología abarca toda la ventana posterior, incluidos los accesos posteriores al éxito destacado.
             </p>
 
             <h2>Guardar una investigación</h2>
@@ -385,8 +386,11 @@
               importado completo.
             </p>
             <p>
+              Las filas repetidas se conservan y cuentan; revisa el aviso antes de interpretar una alerta. Los empates temporales se ordenan de forma determinista, sin afirmar qué acceso ocurrió primero. El informe exporta metadatos y notas como texto literal.
+            </p>
+            <p>
               Los datos se conservan en SQLite en el equipo que ejecuta el
-              servidor. La demostración contiene cuentas y accesos ficticios.
+              servidor. La demostración contiene cuentas y accesos ficticios. No hay monitorización en directo, bloqueo automático ni autenticación multiusuario. Las decisiones antiguas se conservan al actualizar el contexto; revísalas si cambia la evidencia.
             </p>
           </div>
         </section>

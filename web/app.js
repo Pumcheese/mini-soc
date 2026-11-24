@@ -13,7 +13,7 @@ const titulos = {
   ],
   eventos: [
     "Registros de acceso",
-    "Los eventos originales, ordenados por fecha y listos para consultar.",
+    "Los registros normalizados a UTC, ordenados por fecha.",
   ],
   ayuda: [
     "Ayuda",
@@ -33,7 +33,7 @@ function elemento(etiqueta, clase, texto) {
 }
 
 function hora(fecha) {
-  return fecha ? `${fecha.slice(11, 19)}` : "Sin datos";
+  return fecha ? fecha.slice(11).replace(/Z$/, "") : "Sin datos";
 }
 
 function fechaCompleta(fecha) {
@@ -127,6 +127,8 @@ function recibir(datos, mantener = false) {
   $("minutos").value = analisis.minutos;
   $("exportar").href =
     `/api/informe?analisis=${encodeURIComponent(analisis.id)}`;
+  $("avisos-datos").hidden = !analisis.advertencias?.length;
+  $("avisos-datos").textContent = (analisis.advertencias || []).join(" ");
   const opciones = analisis.historial.map((anterior) => {
     const opcion = elemento(
       "option",
@@ -154,6 +156,7 @@ function recibir(datos, mantener = false) {
 
 function mostrarAlertas() {
   if (!analisis) return;
+  const cuentaConFoco = document.activeElement?.dataset.caso;
   const busqueda = $("buscar-alertas").value.trim().toLowerCase();
   const prioridad = $("filtro-prioridad").value;
   const estado = $("filtro-estado").value;
@@ -174,6 +177,7 @@ function mostrarAlertas() {
     const cuenta = elemento("td");
     const boton = elemento("button", "account-link", caso.usuario);
     boton.type = "button";
+    boton.dataset.caso = caso.id;
     boton.setAttribute("aria-pressed", String(seleccionado === caso.id));
     boton.setAttribute(
       "aria-label",
@@ -199,9 +203,14 @@ function mostrarAlertas() {
     estadoCelda.append(
       elemento("span", `badge ${caso.estado}`, estados[caso.estado]),
     );
+    const fechaCelda = elemento("td", "mono");
+    const tiempo = elemento("time", "", hora(caso.fecha_utc));
+    tiempo.dateTime = caso.fecha_utc;
+    tiempo.title = fechaCompleta(caso.fecha_utc);
+    fechaCelda.append(elemento("small", "alert-date", caso.fecha_utc.slice(0, 10)), tiempo);
     fila.append(
       cuenta,
-      elemento("td", "mono", hora(caso.fecha_utc)),
+      fechaCelda,
       prioridadCelda,
       estadoCelda,
     );
@@ -223,6 +232,10 @@ function mostrarAlertas() {
     filas.push(fila);
   }
   $("lista-alertas").replaceChildren(...filas);
+  if (cuentaConFoco) {
+    const boton = [...$("lista-alertas").querySelectorAll("button")].find(b => b.dataset.caso === cuentaConFoco);
+    boton?.focus({ preventScroll: true });
+  }
 }
 
 function mostrarDetalle() {
@@ -247,7 +260,7 @@ function mostrarDetalle() {
   $("ip-posterior").textContent =
     caso.acceso_posterior?.ip_origen || "Sin registro posterior";
   $("hora-posterior").textContent = caso.acceso_posterior
-    ? fechaCompleta(caso.acceso_posterior.fecha_utc)
+    ? `${fechaCompleta(caso.acceso_posterior.fecha_utc)} · ${caso.exitos_posteriores} ${caso.exitos_posteriores === 1 ? "acceso correcto" : "accesos correctos"} en la ventana`
     : `En los ${analisis.minutos} min posteriores a la alerta`;
   const cronologia = caso.cronologia.map((evento) => {
     const fila = elemento("li");
@@ -355,7 +368,7 @@ $("regla-form").addEventListener("submit", (evento) => {
     });
     recibir(datos);
     avisar(
-      `Análisis completado. ${datos.casos.length} alertas para ${datos.eventos.length} eventos.`,
+      `Análisis completado. ${datos.casos.length} ${datos.casos.length === 1 ? "alerta" : "alertas"} para ${datos.eventos.length} eventos.`,
     );
   });
 });
@@ -381,7 +394,7 @@ $("archivo").addEventListener("change", () => {
     });
     recibir(datos);
     avisar(
-      `Importado ${datos.nombre}. ${datos.eventos.length} eventos y ${datos.casos.length} alertas.`,
+      `Importado ${datos.nombre}. ${datos.eventos.length} eventos y ${datos.casos.length} ${datos.casos.length === 1 ? "alerta" : "alertas"}.`,
     );
   });
 });

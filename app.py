@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import logging
+import re
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -30,11 +31,24 @@ VEREDICTOS = {
 }
 
 
+def texto_markdown(texto):
+    """Exporta texto literal, incluidos HTML y sintaxis de enlaces importados."""
+    texto = texto.replace("\r\n", "\n").replace("\r", "\n")
+    lineas = []
+    for linea in texto.split("\n"):
+        literal = re.sub(r"([\\`*_{}\[\]()<>#+!:|~])", r"\\\1", linea)
+        literal = re.sub(r"^(\s*)([-=])", r"\1\\\2", literal)
+        literal = re.sub(r"^(\s*\d+)\.(\s)", r"\1\\.\2", literal)
+        lineas.append(literal)
+    return "\n".join(lineas)
+
+
 def informe(analisis):
     lineas = [
         "# Mini SOC · Informe de investigación",
         "",
-        f"Archivo analizado — {analisis['nombre']}",
+        f"Archivo analizado — {texto_markdown(analisis['nombre'])}",
+        f"Motor de contexto — {analisis.get('version_motor', '1.0')}",
         f"Análisis creado — {analisis['fecha']}",
         f"Regla — {analisis['umbral']} fallos en {analisis['minutos']} minutos por cuenta",
         f"Eventos — {len(analisis['eventos'])}",
@@ -43,10 +57,35 @@ def informe(analisis):
         "La prioridad se calcula a partir de los registros. El veredicto recoge la decisión del analista.",
         "",
     ]
+    for aviso in analisis.get("advertencias", []):
+        lineas.extend([f"Aviso — {texto_markdown(aviso)}", ""])
+    lineas.extend(
+        [
+            "## Procedencia",
+            "",
+            "SHA-256 del texto UTF-8 recibido; no acredita autenticidad ni conserva el archivo original.",
+            "",
+        ]
+    )
+    for fuente in analisis.get("fuentes", []):
+        lineas.append(
+            f"- {texto_markdown(fuente['nombre'])} · {fuente['fecha']} · `{fuente['sha256']}`"
+        )
+    if not analisis.get("fuentes"):
+        lineas.append(
+            "Análisis anterior al registro de procedencia. El hash original no está disponible."
+        )
+    lineas.extend(
+        [
+            "",
+            "El contexto se recalcula con el motor actual; las decisiones guardadas no se modifican.",
+            "",
+        ]
+    )
     for caso in analisis["casos"]:
         lineas.extend(
             [
-                f"## Cuenta {caso['usuario']}",
+                f"## Cuenta {texto_markdown(caso['usuario'])}",
                 "",
                 f"Alerta — {caso['fecha_utc']}",
                 f"Prioridad — {caso['prioridad']}",
@@ -54,6 +93,8 @@ def informe(analisis):
                 f"Estado — {ESTADOS[caso['estado']]}",
                 f"Veredicto — {VEREDICTOS[caso['veredicto']]}",
                 f"Última actualización — {caso['actualizado']}",
+                f"Acceso posterior destacado — {caso['acceso_posterior']['fecha_utc'] + ' · ' + caso['acceso_posterior']['ip_origen'] if caso['acceso_posterior'] else 'Sin registro en la ventana'}",
+                f"Accesos correctos posteriores en la ventana — {caso.get('exitos_posteriores', 0)}",
                 "",
                 "### Evidencia",
                 "",
@@ -61,7 +102,7 @@ def informe(analisis):
         )
         for evento in caso["cronologia"]:
             lineas.append(
-                f"- {evento['fecha_utc']} · {evento['usuario']} · {evento['ip_origen']} · {evento['resultado']}"
+                f"- {evento['fecha_utc']} · {texto_markdown(evento['usuario'])} · {evento['ip_origen']} · {evento['resultado']}"
             )
         if caso["total_cronologia"] > len(caso["cronologia"]):
             lineas.append(
@@ -72,7 +113,11 @@ def informe(analisis):
                 "",
                 "### Conclusión del analista",
                 "",
-                caso["notas"] or "Pendiente de documentar.",
+                (
+                    texto_markdown(caso["notas"])
+                    if caso["notas"]
+                    else "Pendiente de documentar."
+                ),
                 "",
             ]
         )
@@ -140,6 +185,13 @@ def crear_servidor(puerto=8765, directorio_datos=None):
                 operacion()
             except ValueError as error:
                 self.responder({"error": str(error)}, codigo=400)
+            except OverflowError:
+                self.responder(
+                    {
+                        "error": "La fecha o la ventana temporal está fuera del rango admitido."
+                    },
+                    codigo=400,
+                )
             except csv.Error:
                 self.responder(
                     {
@@ -221,7 +273,13 @@ def crear_servidor(puerto=8765, directorio_datos=None):
                     nombre = anterior["nombre"]
                 if not isinstance(texto, str):
                     raise ValueError("El contenido CSV debe ser texto.")
-                identidad = almacen.analizar(texto, nombre, umbral, minutos)
+                identidad = almacen.analizar(
+                    texto,
+                    nombre,
+                    umbral,
+                    minutos,
+                    registrar_fuente=ruta == "/api/demo" or "csv" in datos,
+                )
                 self.responder(almacen.obtener(identidad))
             elif ruta == "/api/casos":
                 identidad = datos.get("id")
@@ -255,12 +313,21 @@ def main():
     argumentos.add_argument(
         "--data-dir", type=Path, help="Carpeta para la base de datos local"
     )
+    argumentos.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Mostrar códigos HTTP de las peticiones locales",
+    )
     opciones = argumentos.parse_args()
+    logging.basicConfig(
+        level=logging.INFO if opciones.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
     if not 1 <= opciones.port <= 65535:
         argumentos.error("El puerto debe estar entre 1 y 65535.")
     try:
         servidor = crear_servidor(opciones.port, opciones.data_dir)
-    except OSError as error:
+    except (OSError, sqlite3.Error) as error:
         argumentos.exit(
             1,
             f"No se pudo iniciar el panel: {error}\nPrueba otro puerto con --port 8766.\n",

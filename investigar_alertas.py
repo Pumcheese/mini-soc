@@ -2,10 +2,11 @@
 
 import csv
 import io
-from datetime import datetime, timedelta, timezone
+from collections import Counter
+from datetime import datetime, timezone
 from ipaddress import ip_address
 
-from detectar_alertas import detectar_alertas
+from detectar_alertas import clave_evento, desplazar_fecha, detectar_alertas
 
 
 CAMPOS = ["fecha_utc", "usuario", "ip_origen", "resultado"]
@@ -32,7 +33,7 @@ def leer_csv(texto):
                 fecha.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
             )
             evento["ip_origen"] = str(ip_address(evento["ip_origen"]))
-        except ValueError as error:
+        except (ValueError, OverflowError) as error:
             raise ValueError(
                 f"Fila {numero}: revisa la fecha con zona horaria y la IP."
             ) from error
@@ -50,15 +51,29 @@ def leer_csv(texto):
 
     if not eventos:
         raise ValueError("El CSV necesita al menos un evento.")
-    return sorted(
-        eventos, key=lambda evento: datetime.fromisoformat(evento["fecha_utc"])
+    return sorted(eventos, key=clave_evento)
+
+
+def advertencias_datos(eventos):
+    """Informa sin eliminar registros que podrían representar accesos distintos."""
+    repetidos = sum(
+        n - 1 for n in Counter(tuple(e[c] for c in CAMPOS) for e in eventos).values()
     )
+    fechas = Counter(e["fecha_utc"] for e in eventos)
+    avisos = []
+    if repetidos:
+        avisos.append(
+            f"Hay {repetidos} filas repetidas. Se conservan y cuentan en la regla; revisa si la fuente está duplicada."
+        )
+    if any(n > 1 for n in fechas.values()):
+        avisos.append(
+            "Hay eventos simultáneos. El orden de presentación es determinista y no acredita el orden real de los accesos."
+        )
+    return avisos
 
 
 def investigar(eventos, umbral, minutos):
-    eventos = sorted(
-        eventos, key=lambda evento: datetime.fromisoformat(evento["fecha_utc"])
-    )
+    eventos = sorted(eventos, key=clave_evento)
     por_usuario = {}
     for evento in eventos:
         por_usuario.setdefault(evento["usuario"], []).append(evento)
@@ -66,7 +81,8 @@ def investigar(eventos, umbral, minutos):
     casos = []
     for alerta in detectar_alertas(eventos, umbral, minutos):
         fecha_alerta = datetime.fromisoformat(alerta["fecha_utc"])
-        limite = fecha_alerta - timedelta(minutes=minutos)
+        limite = desplazar_fecha(fecha_alerta, -minutos)
+        fin_ventana = desplazar_fecha(fecha_alerta, minutos)
         actividad = por_usuario[alerta["usuario"]]
         fallos = [
             evento
@@ -87,11 +103,19 @@ def investigar(eventos, umbral, minutos):
             if evento["resultado"] == "EXITO"
             and fecha_alerta
             < datetime.fromisoformat(evento["fecha_utc"])
-            <= fecha_alerta + timedelta(minutes=minutos)
+            <= fin_ventana
         ]
         anterior = anteriores[-1] if anteriores else None
-        posterior = posteriores[0] if posteriores else None
         ips_fallos = sorted({evento["ip_origen"] for evento in fallos})
+        sospechosos = [
+            evento
+            for evento in posteriores
+            if anterior
+            and evento["ip_origen"] != anterior["ip_origen"]
+            and evento["ip_origen"] in ips_fallos
+        ]
+        # Destaca el primer éxito que cumple el criterio, aunque antes haya otro legítimo.
+        posterior = (sospechosos or posteriores or [None])[0]
         ip_distinta = bool(
             anterior and any(ip != anterior["ip_origen"] for ip in ips_fallos)
         )
@@ -111,15 +135,12 @@ def investigar(eventos, umbral, minutos):
         else:
             motivo = "Falta un acceso correcto anterior con el que comparar las IP."
 
-        fin = (
-            datetime.fromisoformat(posterior["fecha_utc"])
-            if posterior
-            else fecha_alerta
-        )
         cronologia = ([anterior] if anterior else []) + [
             evento
             for evento in actividad
-            if primer_fallo <= datetime.fromisoformat(evento["fecha_utc"]) <= fin
+            if primer_fallo
+            <= datetime.fromisoformat(evento["fecha_utc"])
+            <= fin_ventana
         ]
         casos.append(
             {
@@ -129,6 +150,8 @@ def investigar(eventos, umbral, minutos):
                 "ips_fallos": ips_fallos,
                 "acceso_anterior": anterior,
                 "acceso_posterior": posterior,
+                "exitos_posteriores": len(posteriores),
+                "fin_ventana": fin_ventana.isoformat().replace("+00:00", "Z"),
                 "cronologia": cronologia[:100],
                 "total_cronologia": len(cronologia),
             }
